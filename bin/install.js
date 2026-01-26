@@ -672,7 +672,14 @@ function uninstall(isGlobal, runtime = 'claude') {
     if (settings.hooks && settings.hooks.PostToolUse) {
       const before = settings.hooks.PostToolUse.length;
       settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(entry => {
-        return !(entry.command && entry.command.includes('gsd-activity'));
+        if (entry.hooks && Array.isArray(entry.hooks)) {
+          // Filter out GSD hooks
+          const hasGsdHook = entry.hooks.some(h =>
+            h.command && h.command.includes('gsd-activity')
+          );
+          return !hasGsdHook;
+        }
+        return true;
       });
       if (settings.hooks.PostToolUse.length < before) {
         settingsModified = true;
@@ -1069,15 +1076,18 @@ function install(isGlobal, runtime = 'claude') {
 
     // Check if GSD activity hook already exists
     const hasGsdActivityHook = settings.hooks.PostToolUse.some(entry =>
-      entry.command && entry.command.includes('gsd-activity')
+      entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-activity'))
     );
 
     if (!hasGsdActivityHook) {
       settings.hooks.PostToolUse.push({
-        matcher: {
-          tool_name: ['Task', 'Write', 'Edit', 'Read', 'Bash', 'TodoWrite']
-        },
-        command: activityHookCommand
+        matcher: "Task|Write|Edit|Read|Bash|TodoWrite",
+        hooks: [
+          {
+            type: "command",
+            command: activityHookCommand
+          }
+        ]
       });
       console.log(`  ${green}✓${reset} Configured autopilot activity hook`);
     }
