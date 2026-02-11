@@ -459,7 +459,7 @@ After completion, create `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md`
 | `user_setup` | No | Human-required setup items |
 | `must_haves` | Yes | Goal-backward verification criteria |
 
-**Wave is pre-computed:** Wave numbers are assigned during planning. Execute-phase reads `wave` directly from frontmatter and groups plans by wave number.
+**Wave is advisory:** Wave numbers suggest execution order during planning. Execute-phase performs actual file dependency analysis at runtime using `files_modified` and `depends_on` to determine maximum parallelism. Plans with no file overlap run simultaneously as agent team members. `files_modified` accuracy is critical -- list ALL files each plan will touch.
 
 ## Context Section Rules
 
@@ -1359,7 +1359,7 @@ Phase planning complete when:
 - [ ] Mandatory discovery completed (Level 0-3)
 - [ ] Prior decisions, issues, concerns synthesized
 - [ ] Dependency graph built (needs/creates for each task)
-- [ ] Tasks grouped into plans by wave, not by sequence
+- [ ] Tasks grouped into plans by dependency, maximizing parallelism
 - [ ] PLAN file(s) exist with XML structure
 - [ ] Each plan: depends_on, files_modified, autonomous, must_haves in frontmatter
 - [ ] Each plan: user_setup declared if external services involved

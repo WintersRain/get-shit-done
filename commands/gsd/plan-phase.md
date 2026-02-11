@@ -62,9 +62,9 @@ Default to "balanced" if not set.
 
 | Agent | quality | balanced | budget |
 |-------|---------|----------|--------|
-| gsd-phase-researcher | opus | sonnet | haiku |
-| gsd-planner | opus | opus | sonnet |
-| gsd-plan-checker | sonnet | sonnet | haiku |
+| gsd-phase-researcher | opus | opus | sonnet |
+| gsd-planner | opus | opus | opus |
+| gsd-plan-checker | opus | sonnet | sonnet |
 
 Store resolved models for use in Task calls below.
 

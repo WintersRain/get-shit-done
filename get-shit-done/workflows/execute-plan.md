@@ -24,7 +24,7 @@ Default to "balanced" if not set.
 
 | Agent | quality | balanced | budget |
 |-------|---------|----------|--------|
-| gsd-executor | opus | sonnet | sonnet |
+| gsd-executor | opus | opus | sonnet |
 
 Store resolved model for use in Task calls below.
 </step>

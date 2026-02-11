@@ -251,7 +251,7 @@ Each plan is small enough to execute in a fresh context window. No degradation, 
 
 The system:
 
-1. **Runs plans in waves** — Parallel where possible, sequential when dependent
+1. **Runs plans as agent teams** — Maximum parallelism based on actual file dependencies
 2. **Fresh context per plan** — 200k tokens purely for implementation, zero accumulated garbage
 3. **Commits per task** — Every task gets its own atomic commit
 4. **Verifies against goals** — Checks the codebase delivers what the phase promised
@@ -381,7 +381,7 @@ Every stage uses the same pattern: a thin orchestrator spawns specialized agents
 |-------|------------------|-----------|
 | Research | Coordinates, presents findings | 4 parallel researchers investigate stack, features, architecture, pitfalls |
 | Planning | Validates, manages iteration | Planner creates plans, checker verifies, loop until pass |
-| Execution | Groups into waves, tracks progress | Executors implement in parallel, each with fresh 200k context |
+| Execution | Creates agent team, analyzes dependencies | Executor teammates run all independent plans simultaneously |
 | Verification | Presents results, routes next | Verifier checks codebase against goals, debuggers diagnose failures |
 
 The orchestrator never does heavy lifting. It spawns agents, waits, integrates results.
@@ -424,7 +424,7 @@ You're never locked in. The system adapts.
 | `/gsd:new-project` | Full initialization: questions → research → requirements → roadmap |
 | `/gsd:discuss-phase [N]` | Capture implementation decisions before planning |
 | `/gsd:plan-phase [N]` | Research + plan + verify for a phase |
-| `/gsd:execute-phase <N>` | Execute all plans in parallel waves, verify when complete |
+| `/gsd:execute-phase <N>` | Execute all plans via agent team with maximum parallelism, verify when complete |
 | `/gsd:verify-work [N]` | Manual user acceptance testing ¹ |
 | `/gsd:audit-milestone` | Verify milestone achieved its definition of done |
 | `/gsd:complete-milestone` | Archive milestone, tag release |

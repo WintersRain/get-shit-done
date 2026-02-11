@@ -1,9 +1,11 @@
 <purpose>
-Execute all plans in a phase using wave-based parallel execution. Orchestrator stays lean by delegating plan execution to subagents.
+Execute all plans in a phase (or multiple phases) using agent team-based parallel execution with maximum parallelism. Orchestrator creates an agent team, analyzes actual file dependencies, and runs everything independent simultaneously.
 </purpose>
 
 <core_principle>
-The orchestrator's job is coordination, not execution. Each subagent loads the full execute-plan context itself. Orchestrator discovers plans, analyzes dependencies, groups into waves, spawns agents, handles checkpoints, collects results.
+The orchestrator's job is coordination, not execution. Each teammate loads the full execute-plan context itself. Orchestrator discovers plans, analyzes ACTUAL file dependencies (not pre-computed waves), creates an agent team with proper task dependencies, spawns teammates for all unblocked plans, and monitors until completion.
+
+**MAXIMUM PARALLELISM:** If plans don't modify the same files, they MUST run simultaneously. Wave numbers from planning are ADVISORY ONLY. Actual parallelism is determined by file dependency analysis at execution time.
 </core_principle>
 
 <required_reading>
@@ -26,8 +28,8 @@ Default to "balanced" if not set.
 
 | Agent | quality | balanced | budget |
 |-------|---------|----------|--------|
-| gsd-executor | opus | sonnet | sonnet |
-| gsd-verifier | sonnet | sonnet | haiku |
+| gsd-executor | opus | opus | sonnet |
+| gsd-verifier | opus | opus | sonnet |
 | general-purpose | — | — | — |
 
 Store resolved models for use in Task calls below.
@@ -195,168 +197,216 @@ Build plan inventory:
 If all plans filtered out, report "No matching incomplete plans" and exit.
 </step>
 
-<step name="group_by_wave">
-Read `wave` from each plan's frontmatter and group by wave number:
+<step name="analyze_dependencies">
+Analyze actual file dependencies between plans to determine maximum parallelism.
+
+**Wave numbers are ADVISORY ONLY.** Override with actual file analysis.
 
 ```bash
-# For each plan, extract wave from frontmatter
+# For each plan, extract files_modified, depends_on, and autonomous flag
 for plan in $PHASE_DIR/*-PLAN.md; do
-  wave=$(grep "^wave:" "$plan" | cut -d: -f2 | tr -d ' ')
+  files_modified=$(grep "^files_modified:" "$plan" | cut -d: -f2-)
+  depends_on=$(grep "^depends_on:" "$plan" | cut -d: -f2-)
   autonomous=$(grep "^autonomous:" "$plan" | cut -d: -f2 | tr -d ' ')
-  echo "$plan:$wave:$autonomous"
+  echo "$plan|$files_modified|$depends_on|$autonomous"
 done
 ```
 
-**Group plans:**
+**Build dependency graph:**
+
+1. For each pair of plans, check if their `files_modified` lists overlap
+2. If overlap exists → sequential dependency (earlier plan runs first)
+3. If `depends_on` references another plan → explicit dependency
+4. Everything else → INDEPENDENT → runs simultaneously
+
+**Determine execution groups (replacing waves):**
 ```
-waves = {
-  1: [plan-01, plan-02],
-  2: [plan-03, plan-04],
-  3: [plan-05]
+independent = [plan-01, plan-02, plan-03]  # No file overlap, no depends_on
+blocked = {
+  plan-04: [plan-01],     # plan-04 depends on plan-01
+  plan-05: [plan-03],     # plan-05 depends on plan-03
 }
 ```
 
-**No dependency analysis needed.** Wave numbers are pre-computed during `/gsd:plan-phase`.
-
-Report wave structure with context:
+Report dependency structure with context:
 ```
 ## Execution Plan
 
-**Phase {X}: {Name}** — {total_plans} plans across {wave_count} waves
+**Phase {X}: {Name}** — {total_plans} plans
 
-| Wave | Plans | What it builds |
-|------|-------|----------------|
-| 1 | 01-01, 01-02 | {from plan objectives} |
-| 2 | 01-03 | {from plan objectives} |
-| 3 | 01-04 [checkpoint] | {from plan objectives} |
+| Plan | Dependencies | Status | What it builds |
+|------|-------------|--------|----------------|
+| 01-01 | None | Ready | {from plan objectives} |
+| 01-02 | None | Ready | {from plan objectives} |
+| 01-03 | None | Ready | {from plan objectives} |
+| 01-04 | 01-01 | Blocked | {from plan objectives} |
+| 01-05 | 01-03 | Blocked | {from plan objectives} |
 
+**Parallelism: {N} of {total} plans start immediately**
 ```
 
 The "What it builds" column comes from skimming plan names/objectives. Keep it brief (3-8 words).
 </step>
 
-<step name="execute_waves">
-Execute each wave in sequence. Autonomous plans within a wave run in parallel.
+<step name="execute_team">
+Create an agent team and execute all plans with maximum parallelism.
 
-**For each wave:**
+**1. Create agent team:**
 
-1. **Describe what's being built (BEFORE spawning):**
+```
+TeamCreate(team_name="gsd-phase-{phase}", description="Execute phase {phase}: {phase_name}")
+```
 
-   Read each plan's `<objective>` section. Extract what's being built and why it matters.
+**2. Create tasks for all plans:**
 
-   **Output:**
-   ```
-   ---
+For each incomplete plan, create a task in the team's task list:
 
-   ## Wave {N}
+```
+TaskCreate(
+  subject="Execute {plan_id}: {plan_name}",
+  description="Execute plan at {plan_path}. Create SUMMARY.md. Commit each task atomically.",
+  activeForm="Executing {plan_id}"
+)
+```
 
-   **{Plan ID}: {Plan Name}**
-   {2-3 sentences: what this builds, key technical approach, why it matters in context}
+Then set up dependency relationships from the analyze_dependencies step:
 
-   **{Plan ID}: {Plan Name}** (if parallel)
-   {same format}
+```
+TaskUpdate(taskId="{blocked_plan_task_id}", addBlockedBy=["{dependency_task_id}"])
+```
 
-   Spawning {count} agent(s)...
+**3. Read file contents for teammates:**
 
-   ---
-   ```
+Before spawning, read all plan contents. The `@` syntax does not work across Task() boundaries.
 
-   **Examples:**
-   - Bad: "Executing terrain generation plan"
-   - Good: "Procedural terrain generator using Perlin noise — creates height maps, biome zones, and collision meshes. Required before vehicle physics can interact with ground."
+```bash
+STATE_CONTENT=$(cat .planning/STATE.md)
+CONFIG_CONTENT=$(cat .planning/config.json 2>/dev/null)
+# Read each plan file individually
+```
 
-2. **Read files and spawn all autonomous agents in wave simultaneously:**
+**4. Describe what's being built (BEFORE spawning):**
 
-   Before spawning, read file contents. The `@` syntax does not work across Task() boundaries - content must be inlined.
+Read each plan's `<objective>` section. Summarize the full execution plan:
 
-   ```bash
-   # Read each plan in the wave
-   PLAN_CONTENT=$(cat "{plan_path}")
-   STATE_CONTENT=$(cat .planning/STATE.md)
-   CONFIG_CONTENT=$(cat .planning/config.json 2>/dev/null)
-   ```
+```
+---
 
-   Use Task tool with multiple parallel calls. Each agent gets prompt with inlined content:
+## Execution Starting
 
-   ```
-   <objective>
-   Execute plan {plan_number} of phase {phase_number}-{phase_name}.
+**{Plan ID}: {Plan Name}** — Ready
+{2-3 sentences: what this builds, key technical approach}
 
-   Commit each task atomically. Create SUMMARY.md. Update STATE.md.
-   </objective>
+**{Plan ID}: {Plan Name}** — Ready
+{same format}
 
-   <execution_context>
-   @~/.claude/get-shit-done/workflows/execute-plan.md
-   @~/.claude/get-shit-done/templates/summary.md
-   @~/.claude/get-shit-done/references/checkpoints.md
-   @~/.claude/get-shit-done/references/tdd.md
-   </execution_context>
+**{Plan ID}: {Plan Name}** — Blocked by {dependency}
+{same format}
 
-   <context>
-   Plan:
-   {plan_content}
+Spawning {count} teammates for {ready_count} ready plans...
 
-   Project state:
-   {state_content}
+---
+```
 
-   Config (if exists):
-   {config_content}
-   </context>
+**Examples:**
+- Bad: "Executing terrain generation plan"
+- Good: "Procedural terrain generator using Perlin noise — creates height maps, biome zones, and collision meshes. Required before vehicle physics can interact with ground."
 
-   <success_criteria>
-   - [ ] All tasks executed
-   - [ ] Each task committed individually
-   - [ ] SUMMARY.md created in plan directory
-   - [ ] STATE.md updated with position and decisions
-   </success_criteria>
-   ```
+**5. Spawn ALL unblocked plans as teammates simultaneously:**
 
-2. **Wait for all agents in wave to complete:**
+For each plan with no unresolved dependencies, spawn a teammate in a SINGLE message with multiple Task calls:
 
-   Task tool blocks until each agent finishes. All parallel agents return together.
+```
+Task(
+  prompt="<objective>
+Execute plan {plan_number} of phase {phase_number}-{phase_name}.
 
-3. **Report completion and what was built:**
+Commit each task atomically. Create SUMMARY.md. Update STATE.md.
+</objective>
 
-   For each completed agent:
-   - Verify SUMMARY.md exists at expected path
-   - Read SUMMARY.md to extract what was built
-   - Note any issues or deviations
+<execution_context>
+@~/.claude/get-shit-done/workflows/execute-plan.md
+@~/.claude/get-shit-done/templates/summary.md
+@~/.claude/get-shit-done/references/checkpoints.md
+@~/.claude/get-shit-done/references/tdd.md
+</execution_context>
 
-   **Output:**
-   ```
-   ---
+<context>
+Plan:
+{plan_content}
 
-   ## Wave {N} Complete
+Project state:
+{state_content}
 
-   **{Plan ID}: {Plan Name}**
-   {What was built — from SUMMARY.md deliverables}
-   {Notable deviations or discoveries, if any}
+Config (if exists):
+{config_content}
+</context>
 
-   **{Plan ID}: {Plan Name}** (if parallel)
-   {same format}
+<success_criteria>
+- [ ] All tasks executed
+- [ ] Each task committed individually
+- [ ] SUMMARY.md created in plan directory
+- [ ] STATE.md updated with position and decisions
+</success_criteria>",
+  subagent_type="gsd-executor",
+  model="{executor_model}",
+  team_name="gsd-phase-{phase}",
+  name="executor-{plan_id}"
+)
+```
 
-   {If more waves: brief note on what this enables for next wave}
+**CRITICAL:** Spawn ALL ready plans in a single message. If 5 plans are ready, send 5 Task calls in one message.
 
-   ---
-   ```
+**6. Monitor completion and spawn newly unblocked plans:**
 
-   **Examples:**
-   - Bad: "Wave 2 complete. Proceeding to Wave 3."
-   - Good: "Terrain system complete — 3 biome types, height-based texturing, physics collision meshes. Vehicle physics (Wave 3) can now reference ground surfaces."
+When a teammate completes:
+- Mark its task as completed (TaskUpdate)
+- Verify SUMMARY.md exists at expected path
+- Read SUMMARY.md to extract what was built
+- Check TaskList for newly unblocked tasks
+- If any tasks are now unblocked, spawn new teammates for them immediately
 
-4. **Handle failures:**
+**Report each completion:**
+```
+---
 
-   If any agent in wave fails:
-   - Report which plan failed and why
-   - Ask user: "Continue with remaining waves?" or "Stop execution?"
-   - If continue: proceed to next wave (dependent plans may also fail)
-   - If stop: exit with partial completion report
+## {Plan ID} Complete
 
-5. **Execute checkpoint plans between waves:**
+{What was built — from SUMMARY.md deliverables}
+{Notable deviations or discoveries, if any}
 
-   See `<checkpoint_handling>` for details.
+{N} of {total} plans complete. {remaining_ready} more running.
 
-6. **Proceed to next wave**
+---
+```
+
+**7. Handle failures:**
+
+If any teammate fails:
+- Report which plan failed and why
+- Check if failed plan blocks other plans
+- Ask user: "Continue with independent plans?" or "Stop execution?"
+- If continue: keep running independent plans, skip blocked ones
+- If stop: shut down all teammates, exit with partial completion report
+
+**8. Handle checkpoint plans:**
+
+Plans with `autonomous: false` have checkpoints. When a teammate hits a checkpoint:
+- Teammate sends checkpoint message to team lead
+- Lead presents checkpoint to user
+- After user responds, spawn new teammate to continue from checkpoint
+- See `<checkpoint_handling>` for details
+
+**9. Clean up team after all plans complete:**
+
+```
+# Shut down all remaining teammates
+SendMessage(type="shutdown_request", recipient="executor-{plan_id}", content="All plans complete")
+# ... for each teammate
+
+# Delete team
+TeamDelete()
+```
 
 </step>
 
@@ -625,32 +675,40 @@ All {N} phases executed.
 </process>
 
 <context_efficiency>
-Orchestrator: ~10-15% context (frontmatter, spawning, results).
-Subagents: Fresh 200k each (full workflow + execution).
-No polling (Task blocks). No context bleed.
+Orchestrator: ~10-15% context (dependency analysis, team management, results).
+Teammates: Fresh 200k each (full workflow + execution, independent context windows).
+Agent team coordination via shared task list.
+Maximum parallelism: all independent plans run simultaneously as team members.
 </context_efficiency>
 
 <failure_handling>
-**Subagent fails mid-plan:**
+**Teammate fails mid-plan:**
 - SUMMARY.md won't exist
 - Orchestrator detects missing SUMMARY
 - Reports failure, asks user how to proceed
+- Other independent teammates keep running (they're not affected)
 
 **Dependency chain breaks:**
-- Wave 1 plan fails
-- Wave 2 plans depending on it will likely fail
-- Orchestrator can still attempt them (user choice)
-- Or skip dependent plans entirely
+- Plan A fails
+- Plans depending on A become permanently blocked
+- Independent plans keep running
+- Orchestrator reports: "Plan A failed. Plans B, C are blocked. Plans D, E continue independently."
+- Ask user: skip blocked plans or abort?
 
-**All agents in wave fail:**
+**All teammates fail:**
 - Something systemic (git issues, permissions, etc.)
-- Stop execution
+- Stop execution, clean up team
 - Report for manual investigation
 
 **Checkpoint fails to resolve:**
 - User can't approve or provides repeated issues
 - Ask: "Skip this plan?" or "Abort phase execution?"
 - Record partial progress in STATE.md
+
+**Git conflicts between parallel teammates:**
+- Two teammates modifying nearby (but not same) files may cause merge conflicts
+- If detected: pause conflicting teammate, resolve conflict, continue
+- Dependency analysis should prevent this, but handle gracefully if it occurs
 </failure_handling>
 
 <resumption>
@@ -661,11 +719,12 @@ If phase execution was interrupted (context limit, user exit, error):
 1. Run `/gsd:execute-phase {phase}` again
 2. discover_plans finds completed SUMMARYs
 3. Skips completed plans
-4. Resumes from first incomplete plan
-5. Continues wave-based execution
+4. Re-analyzes dependencies among remaining plans
+5. Creates new agent team with remaining work
+6. Maximum parallelism still enforced
 
 **STATE.md tracks:**
 - Last completed plan
-- Current wave
+- Remaining incomplete plans
 - Any pending checkpoints
 </resumption>

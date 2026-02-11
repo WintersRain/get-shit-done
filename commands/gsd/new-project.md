@@ -327,9 +327,9 @@ questions: [
     question: "Which AI models for planning agents?",
     multiSelect: false,
     options: [
-      { label: "Balanced (Recommended)", description: "Sonnet for most agents — good quality/cost ratio" },
-      { label: "Quality", description: "Opus for research/roadmap — higher cost, deeper analysis" },
-      { label: "Budget", description: "Haiku where possible — fastest, lowest cost" }
+      { label: "Quality (Recommended)", description: "Opus everywhere — maximum accuracy, best results" },
+      { label: "Balanced", description: "Opus for most agents, Sonnet for synthesis/checking" },
+      { label: "Budget", description: "Sonnet for most, Haiku only for codebase mapping" }
     ]
   }
 ]
@@ -390,9 +390,9 @@ Default to "balanced" if not set.
 
 | Agent | quality | balanced | budget |
 |-------|---------|----------|--------|
-| gsd-project-researcher | opus | sonnet | haiku |
-| gsd-research-synthesizer | sonnet | sonnet | haiku |
-| gsd-roadmapper | opus | sonnet | sonnet |
+| gsd-project-researcher | opus | opus | sonnet |
+| gsd-research-synthesizer | opus | sonnet | sonnet |
+| gsd-roadmapper | opus | opus | sonnet |
 
 Store resolved models for use in Task calls below.
 

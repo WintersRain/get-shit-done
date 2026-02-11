@@ -116,8 +116,8 @@ Result: Creates `.planning/phases/01-foundation/01-01-PLAN.md`
 **`/gsd:execute-phase <phase-number>`**
 Execute all plans in a phase.
 
-- Groups plans by wave (from frontmatter), executes waves sequentially
-- Plans within each wave run in parallel via Task tool
+- Analyzes actual file dependencies between plans for maximum parallelism
+- Creates agent team, runs ALL independent plans simultaneously as teammates
 - Verifies phase goal after all plans complete
 - Updates REQUIREMENTS.md, ROADMAP.md, STATE.md
 

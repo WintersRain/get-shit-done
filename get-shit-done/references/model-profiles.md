@@ -6,35 +6,34 @@ Model profiles control which Claude model each GSD agent uses. This allows balan
 
 | Agent | `quality` | `balanced` | `budget` |
 |-------|-----------|------------|----------|
-| gsd-planner | opus | opus | sonnet |
-| gsd-roadmapper | opus | sonnet | sonnet |
-| gsd-executor | opus | sonnet | sonnet |
-| gsd-phase-researcher | opus | sonnet | haiku |
-| gsd-project-researcher | opus | sonnet | haiku |
-| gsd-research-synthesizer | sonnet | sonnet | haiku |
-| gsd-debugger | opus | sonnet | sonnet |
-| gsd-codebase-mapper | sonnet | haiku | haiku |
-| gsd-verifier | sonnet | sonnet | haiku |
-| gsd-plan-checker | sonnet | sonnet | haiku |
-| gsd-integration-checker | sonnet | sonnet | haiku |
+| gsd-planner | opus | opus | opus |
+| gsd-roadmapper | opus | opus | sonnet |
+| gsd-executor | opus | opus | sonnet |
+| gsd-phase-researcher | opus | opus | sonnet |
+| gsd-project-researcher | opus | opus | sonnet |
+| gsd-research-synthesizer | opus | sonnet | sonnet |
+| gsd-debugger | opus | opus | sonnet |
+| gsd-codebase-mapper | opus | sonnet | haiku |
+| gsd-verifier | opus | opus | sonnet |
+| gsd-plan-checker | opus | sonnet | sonnet |
+| gsd-integration-checker | opus | sonnet | sonnet |
 
 ## Profile Philosophy
 
-**quality** - Maximum reasoning power
-- Opus for all decision-making agents
-- Sonnet for read-only verification
-- Use when: quota available, critical architecture work
+**quality** - Maximum accuracy, Opus everywhere
+- Opus for every agent without exception
+- Use when: critical projects, complex architecture, accuracy over speed
 
-**balanced** (default) - Smart allocation
-- Opus only for planning (where architecture decisions happen)
-- Sonnet for execution and research (follows explicit instructions)
-- Sonnet for verification (needs reasoning, not just pattern matching)
-- Use when: normal development, good balance of quality and cost
+**balanced** (default) - Opus-first with Sonnet fallback
+- Opus for all decision-making, execution, research, and verification
+- Sonnet only for synthesis, mapping, and plan checking (structured output tasks)
+- Use when: normal development, high quality with reasonable cost
 
-**budget** - Minimal Opus usage
-- Sonnet for anything that writes code
-- Haiku for research and verification
+**budget** - Sonnet-first, minimal Haiku
+- Sonnet for everything that writes code, plans, researches, or verifies
+- Haiku ONLY for codebase-mapper (read-only exploration, no reasoning needed)
 - Use when: conserving quota, high-volume work, less critical phases
+- NOTE: Haiku is restricted to purely read-only, non-critical tasks only
 
 ## Resolution Logic
 
@@ -60,14 +59,14 @@ Per-project default: Set in `.planning/config.json`:
 
 ## Design Rationale
 
-**Why Opus for gsd-planner?**
-Planning involves architecture decisions, goal decomposition, and task design. This is where model quality has the highest impact.
+**Why Opus for gsd-planner (all profiles)?**
+Planning involves architecture decisions, goal decomposition, and task design. Quality here cascades through the entire project. Never compromise on planning.
 
-**Why Sonnet for gsd-executor?**
-Executors follow explicit PLAN.md instructions. The plan already contains the reasoning; execution is implementation.
+**Why Opus for gsd-executor (quality + balanced)?**
+Executors encounter deviations, bugs, and architectural decisions during implementation. Opus handles these better than Sonnet. The plan provides structure, but execution still requires strong reasoning.
 
-**Why Sonnet (not Haiku) for verifiers in balanced?**
-Verification requires goal-backward reasoning - checking if code *delivers* what the phase promised, not just pattern matching. Sonnet handles this well; Haiku may miss subtle gaps.
+**Why Opus for gsd-verifier (quality + balanced)?**
+Verification requires goal-backward reasoning - checking if code *delivers* what the phase promised. Missing a gap here wastes an entire execution cycle. Accuracy over speed.
 
-**Why Haiku for gsd-codebase-mapper?**
-Read-only exploration and pattern extraction. No reasoning required, just structured output from file contents.
+**Why Haiku ONLY for gsd-codebase-mapper in budget?**
+Read-only exploration and pattern extraction. The only agent where reasoning depth genuinely doesn't matter - it's purely extracting structured output from file contents. Every other agent benefits from higher reasoning quality.
